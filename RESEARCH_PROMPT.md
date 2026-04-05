@@ -12,13 +12,12 @@ This flow is **one-shot**. It is triggered manually; it does not poll or loop on
 
 ```bash
 # First time: clone
-git clone https://github.com/alnah005/tt-symbiote-research-topics.git /home/ttuser/salnahari/research-topics/tt-symbiote-research-topics
-
+git clone https://github.com/alnah005/llk_research.git llk_research
 # Every time: pull latest
-cd /home/ttuser/salnahari/research-topics/tt-symbiote-research-topics && git pull
+cd llk_research && git pull
 ```
 
-Read `/home/ttuser/salnahari/research-topics/tt-symbiote-research-topics/research_topics.md` and collect all topics with `Status: Pending`.
+Read `llk_research/research_topics.md` and collect all topics with `Status: Pending`.
 
 - If there are **no Pending topics**: exit immediately. Nothing to do.
 - If there are **Pending topics**: you (the orchestrator — the Claude Code instance reading this prompt) directly manage all topics. There are no coordinator sub-agents. You spawn Agent A, Agent B, and Agent C yourself, directly, for each topic.
@@ -96,7 +95,7 @@ When a topic's guide satisfies the completion condition, you directly:
 2. Push immediately — do not wait for other topics:
 
 ```bash
-cd /home/ttuser/salnahari/research-topics/tt-symbiote-research-topics
+cd llk_research
 git add research_topics.md
 git commit -m "research: completed topic <topic-name>"
 git push
