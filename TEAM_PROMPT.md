@@ -42,12 +42,12 @@ You are the **Team Lead**. You MUST follow these rules:
 
 ### Step 1: Pull Latest Research Cache (REQUIRED)
 ```bash
-cd /home/ttuser/salnahari/research-topics/tt-symbiote-research-topics && git pull
+cd llk_research && git pull
 ```
 
 ### Step 2: Read the Cache (REQUIRED)
 ```bash
-cat /home/ttuser/salnahari/research-topics/tt-symbiote-research-topics/research_topics.md
+cat llk_research/research_topics.md
 ```
 
 ### Step 3: For EACH Topic the Plan Depends On (REQUIRED)
@@ -68,7 +68,7 @@ cat /home/ttuser/salnahari/research-topics/tt-symbiote-research-topics/research_
 
 ### Step 4: Push Any New Topics (REQUIRED if cache miss)
 ```bash
-cd /home/ttuser/salnahari/research-topics/tt-symbiote-research-topics
+cd llk_research
 git add research_topics.md
 git commit -m "team/architect: cache miss — add topic <topic-name>"
 git push
@@ -86,13 +86,13 @@ You MUST execute the following commands using the Bash tool and SHOW their outpu
 ### Step 1: Pull latest (USE BASH TOOL)
 Execute this command and show the output:
 ```bash
-cd /home/ttuser/salnahari/research-topics/tt-symbiote-research-topics && git pull
+cd llk_research && git pull
 ```
 
 ### Step 2: Read cache (USE BASH TOOL)
 Execute this command and show the output:
 ```bash
-cat /home/ttuser/salnahari/research-topics/tt-symbiote-research-topics/research_topics.md
+cat llk_research/research_topics.md
 ```
 
 ### Step 3: Report cache status
@@ -109,7 +109,7 @@ Copy the **Findings** section into your analysis. Do NOT re-research completed q
 ### Step 5: For missing research questions (cache miss)
 Add new research questions and push (DO NOT ADD PLAN FILES or ADD RESEARCH QUESTIONS THAT HAVE BEEN ANSWERED BY YOU):
 ```bash
-cd /home/ttuser/salnahari/research-topics/tt-symbiote-research-topics
+cd llk_research
 # Edit research_topics.md to add new research question
 git add research_topics.md
 git commit -m "team/architect: cache miss — add topic <topic-name>"
@@ -190,8 +190,6 @@ After receiving the Architect's response, the Team Lead MUST verify:
 - `tt-smi -r` to reset chips before each test run
 - `pytest --timeout=0` to prevent timeouts
 - `MESH_DEVICE=T3K` for T3K mesh device tests
-- tt-symbiote by default shards the output of all TTNN modules on the last demension (check run_config.py). Expect to add an all gather if shape mismatches.
-- No need to run CPU mode (it's trivial and works)
 
 ---
 
@@ -203,7 +201,7 @@ After receiving the Architect's response, the Team Lead MUST verify:
    - Step-by-step implementation plan
    - Success criteria
 
-2. **Research topics:** pushed to shared repo at `/home/ttuser/salnahari/research-topics/tt-symbiote-research-topics/research_topics.md` (if cache miss) with:
+2. **Research topics:** pushed to shared repo at `llk_research/research_topics.md` (if cache miss) with:
    - Topic name (must be generic and reusable across tasks — not tied to the current bug/feature)
    - Questions to answer (the Architect poses questions only — do NOT fill in answers or findings)
    - Findings: TBD
