@@ -1,0 +1,5 @@
+# Agent B Review: Chapter 5 — SFPU Operations — Pass 1
+
+1. **`cdf` listed as an `SfpuType` enum member, but it is not one.** In `sfpu_operations_catalog.md`, the "Special Math Functions" table lists `cdf` with header `ckernel_sfpu_cdf.h`. However, `cdf` does not appear in the `SfpuType` enum in `tests/helpers/include/llk_sfpu_types.h`. The file `ckernel_sfpu_cdf.h` exists but only provides internal helper functions (e.g., `_calculate_cdf_appx_`) used by other operations like GELU — it is not a standalone SFPU operation. A reader trying to use `SfpuType::cdf` would get a compilation error.
+
+2. **`InstrModLoadStore` table in `sfpu_architecture.md` is incomplete.** The table shows 8 values (codes 0–7), but the actual enum in `tt_llk_wormhole_b0/llk_lib/llk_defs.h` defines 12 values. The missing entries are: `INT32_2S_COMP` (12), `INT8_2S_COMP` (13), `LO16_ONLY` (14), and `HI16_ONLY` (15). Someone implementing SFPU load/store for two's-complement integer formats would not find the correct modifier from this table.

@@ -27,7 +27,8 @@ This file tracks research topics that the Architect needs to investigate for mak
 
 ## Introduction to TT-LLK (Tenstorrent Low-Level Kernel Library)
 **Date:** 2026-04-05
-**Status:** Pending
+**Status:** Completed
+**Guide:** introduction_to_tt_llk/
 **Why Needed:** Developers and op writers need a comprehensive introduction to the TT-LLK library — the foundational software layer for programming Tenstorrent Tensix cores. The library is header-only C++17 with hardware-specific implementations across three chip architectures (Blackhole, Wormhole B0, Quasar), and understanding its structure, APIs, and programming model is essential for writing efficient kernels. The source code lives at /localdev/salnahari/testing_dir/tt-llk.
 **Questions:**
 - What is TT-LLK and where does it sit in the Tenstorrent software stack (relative to TT-Metal and TT-Forge)?
