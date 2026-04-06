@@ -15,9 +15,6 @@ This file tracks research topics that the Architect needs to investigate for mak
 - Question 1
 - Question 2
 
-**Findings:**
-[Results of research go here]
-
 ---
 ```
 
@@ -40,9 +37,6 @@ This file tracks research topics that the Architect needs to investigate for mak
 - How does the test infrastructure work and how do developers run and write tests?
 - What conventions, data formats (FP32, FP16, BFP8, Int8, etc.), and synchronization mechanisms (DstSync, semaphores) must kernel writers understand?
 
-**Findings:**
-[Results of research go here]
-
 ---
 
 ## TT-LLK Usage in TT-Metal
@@ -59,9 +53,6 @@ This file tracks research topics that the Architect needs to investigate for mak
 - What runtime parameters does TT-Metal pass to LLK kernels, and how are they plumbed through?
 - How do TT-Metal's compute kernel source files (the .cpp files that run on Tensix) use LLK includes and macros?
 - Are there abstraction layers or wrappers in TT-Metal between the user-facing op API and raw LLK calls?
-
-**Findings:**
-[Results of research go here]
 
 ---
 
