@@ -65,4 +65,4 @@ Developers choose fidelity based on their model's sensitivity to numerical error
 
 ---
 
-**Next:** [Chapter 4 — The Unpack-Math-Pack Pipeline](../ch4_unpack_math_pack_pipeline/index.md)
+**Next:** [Chapter 4 -- The Unpack-Math-Pack Pipeline](../ch4_unpack_math_pack_pipeline/index.md)
