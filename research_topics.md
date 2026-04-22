@@ -58,7 +58,8 @@ This file tracks research topics that the Architect needs to investigate for mak
 
 ## Pros and Cons of LLK Integration with TT-Metal
 **Date:** 2026-04-22
-**Status:** Pending
+**Status:** Completed
+**Guide:** pros_and_cons_of_llk_integration_with_tt_metal/
 **Why Needed:** TT-Metal consumes TT-LLK as its low-level kernel layer, but the integration design has significant architectural implications. Understanding the strengths and weaknesses of the current integration model — from build system coupling, to API abstraction boundaries, to hardware target configuration, to developer ergonomics — is essential for informing future architectural decisions about how these two layers should evolve together. The source code for TT-LLK lives at /localdev/salnahari/testing_dir/tt-llk and TT-Metal at /localdev/salnahari/testing_dir/tt-metal.
 **Questions:**
 - What are the advantages of the current submodule-based integration model (header inclusion, build-time compilation)?
