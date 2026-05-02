@@ -94,3 +94,43 @@ This file tracks research topics that the Architect needs to investigate for mak
 
 ---
 
+## Minimum Requirements to Run a MatMul on P150 Using Pure LLK
+**Date:** 2026-05-02
+**Status:** Completed
+**Guide:** minimum_requirements_to_run_a_matmul_on_p150_using_pure_llk/
+**Why Needed:** Understanding the bare-minimum code, configuration, and infrastructure needed to execute a matrix multiplication on a Tenstorrent P150 chip using only the LLK (Low-Level Kernel) library — without TT-Metal's abstractions — is essential for developers who want to work at the lowest software layer. This research should produce a concrete, end-to-end understanding of what is required: from host-side setup and memory allocation, through kernel compilation and dispatch, to the actual LLK API calls on the Tensix cores. The source code for TT-LLK lives at /localdev/salnahari/testing_dir/tt-llk.
+**Questions:**
+- What is the P150 chip and which architecture variant (Blackhole, Wormhole B0, Quasar) does it correspond to in the LLK codebase?
+- What host-side setup is required to initialize the device and allocate memory before running a kernel on P150?
+- What is the minimal set of LLK API calls needed for a matrix multiplication (init, unpack, math, pack sequences)?
+- What tile format, data format, and memory layout must be configured for the matmul operands and output?
+- How are the three TRISC threads (unpack, math, pack) coordinated for a matmul operation using pure LLK?
+- What kernel source files need to be written, and how are they compiled and loaded onto the Tensix cores without TT-Metal?
+- What preprocessor defines, compile-time parameters, and configuration macros are required for a matmul kernel?
+- Are there existing LLK test cases or examples for standalone matmul that can serve as a reference?
+- What are the minimum dependencies (libraries, toolchain, firmware) needed to build and run a pure LLK matmul on P150?
+- What synchronization, semaphore, and data movement considerations are unique to running without TT-Metal's runtime?
+- What better alternatives exist to run a matmul on P150 that do not use LLK at any level of the stack (e.g., non-Tensix execution paths, host-side computation, alternative firmware, or frameworks that bypass LLK entirely)?
+
+---
+
+## Eliminating Explicit CCL Kernels via Global SRAM Pooling and Runtime-Managed Packet Hopping
+**Date:** 2026-05-02
+**Status:** Completed
+**Guide:** eliminating_explicit_ccl_kernels_via_global_sram_pooling_and_runtime_managed_packet_hopping/
+**Why Needed:** Today, multi-device communication on Tenstorrent systems requires explicit CCL (Collective Communication Library) kernels — hand-written or generated kernels that manage data movement between chips. This research investigates whether it is architecturally feasible to eliminate the need for these explicit kernels entirely by treating all SRAM across chips as a single global memory pool, with the runtime and/or hardware transparently handling packet hopping between devices. Understanding the feasibility, trade-offs, and requirements of this model is critical for simplifying multi-chip programming and scaling Tenstorrent systems. The source code for TT-Metal lives at /localdev/salnahari/testing_dir/tt-metal.
+**Questions:**
+- How do explicit CCL kernels work today in TT-Metal? What collective operations (all-gather, reduce-scatter, all-reduce, etc.) do they implement, and what is the programming model?
+- What is the current SRAM (L1) architecture per chip, and how is inter-chip communication handled at the hardware level (Ethernet links, NOC, routing)?
+- Is the hardware capable of transparently routing packets across chip boundaries, or does it require explicit software-managed data movement?
+- What would a "global SRAM pool" abstraction look like — how would addresses be mapped across chips, and how would coherence or consistency be managed?
+- What are the latency and bandwidth implications of packet hopping across chips compared to explicit CCL kernel orchestration?
+- What runtime infrastructure would be needed to manage transparent cross-chip data movement (address translation, routing tables, flow control, deadlock avoidance)?
+- Are there existing hardware features (e.g., Ethernet core firmware, NOC multicast/unicast capabilities) that could serve as building blocks for runtime-managed packet hopping?
+- What are the trade-offs of implicit runtime-managed communication vs. explicit CCL kernels in terms of performance, predictability, debuggability, and resource utilization?
+- How do other multi-chip architectures (e.g., Cerebras wafer-scale, GPU NVLink with NCCL, Graphcore IPU exchange) handle this problem, and what lessons apply?
+- Under what workload patterns (model parallelism, data parallelism, pipeline parallelism) would a global SRAM pool model be most and least effective?
+- What are the minimum hardware and firmware changes (if any) required to support this model on current Tenstorrent chips (Wormhole, Blackhole)?
+
+---
+
