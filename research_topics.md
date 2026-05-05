@@ -134,3 +134,24 @@ This file tracks research topics that the Architect needs to investigate for mak
 
 ---
 
+## Runtime Interceptor for LLK Kernel Capture and GDB-Style Replay Debugging
+**Date:** 2026-05-04
+**Status:** Completed
+**Guide:** runtime_interceptor_for_llk_kernel_capture_and_gdb_style_replay_debugging/
+**Why Needed:** Debugging kernels on Tenstorrent hardware is difficult because the execution happens on Tensix RISC-V cores with limited visibility. CUDA developers can attach cuda-gdb to individual GPU threads, set breakpoints, inspect registers, and single-step through kernel code. Tenstorrent has no equivalent workflow today. This research investigates the feasibility of building a runtime interceptor layer in TT-Metal that captures everything needed to reproduce an LLK kernel invocation — dispatch commands, arguments, memory state, configuration defines, tile data — and replay it in a GDB-style debugger (potentially on a RISC-V emulator or the actual hardware via JTAG/debug firmware). Understanding what cuda-gdb actually does under the hood, what TT-Metal's current debug infrastructure provides, and what gaps exist is essential for designing such a system. The source code for TT-LLK lives at /localdev/salnahari/testing_dir/tt-llk and TT-Metal at /localdev/salnahari/testing_dir/tt-metal.
+**Questions:**
+- How does cuda-gdb work under the hood? What runtime hooks, driver interfaces, and hardware debug features does it rely on to attach to individual GPU threads?
+- What does TT-Metal's current kernel dispatch path look like end-to-end — from host op invocation through kernel compilation, argument passing, memory setup, and launch on Tensix cores?
+- What is the complete set of state that would need to be captured to fully reproduce an LLK kernel invocation (compiled binary, CB/L1 memory contents, runtime args, preprocessor defines, tile data, semaphore state, NOC configuration)?
+- What existing debug infrastructure does TT-Metal provide today (watcher, DPRINT, fake_kernels_target, LLK_ASSERT, device logs) and what are their limitations?
+- Do the Tensix RISC-V cores support hardware debug features (JTAG, breakpoints, watchpoints, single-step) that could enable GDB-style attach?
+- Could a RISC-V emulator (e.g., Spike, QEMU) run captured LLK kernels with GDB attached, and what hardware-specific behavior would be lost in emulation?
+- Where in the TT-Metal runtime would an interceptor hook need to be placed to capture all relevant state without missing implicit configuration?
+- What serialization format and storage strategy would be appropriate for kernel capture snapshots (size estimates, versioning, reproducibility guarantees)?
+- How would the replay debugger handle multi-core coordination (the 5 RISC-V cores per Tensix, inter-core semaphores, NOC transactions)?
+- What are the performance and storage overhead implications of always-on capture vs. selective capture triggered by breakpoint or failure?
+- Are there existing tools or prototypes in the TT-Metal or TT-LLK codebase that partially address kernel capture or replay?
+- What lessons from other hardware debuggers (cuda-gdb, rocgdb, Intel GT debugger, Arm DS) apply to designing this for Tenstorrent?
+
+---
+
