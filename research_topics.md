@@ -155,3 +155,28 @@ This file tracks research topics that the Architect needs to investigate for mak
 
 ---
 
+## Comprehensive Understanding of TT-Blaze (Tenstorrent Blaze Kernel Composition Framework)
+**Date:** 2026-05-07
+**Status:** Completed
+**Guide:** comprehensive_understanding_of_tt_blaze/
+**Why Needed:** TT-Blaze is Tenstorrent's lightweight kernel composition layer built on top of TT-Metal, designed for low-latency inference on Blackhole silicon. It enables C++ kernel developers to write real TT-Metal kernel code and compose individual ops (MicroOps) into fused pipelines (FusedOps) in Python. The framework includes a full compilation pipeline (CB/Sem/CT-arg engines, JIT per-RISC compilation, kernel codegen), a multi-host pipeline orchestration system (pipeline_builder), a production-grade C++20 token scheduling library (pipeline_manager), a KV cache migration library for disaggregated inference, and an interactive dataflow visualizer. Understanding the entire system — from the op abstraction and graph IR through the compilation pipeline, the ~70+ op library (data movement, compute, attention, MoE), pipeline orchestration, token scheduling, and KV cache migration — is essential for developers working on or extending the Blaze inference stack. The source code lives at /localdev/salnahari/testing_dir/tt-blaze.
+**Questions:**
+- What is TT-Blaze's overall architecture and where does it sit in the Tenstorrent software stack relative to TT-Metal, TT-LLK, and TT-Forge?
+- How does the two-API design work — the graph API (`blaze.fuse()` context manager with `BlazeGraph` DAG) versus the composition API (`emit()` inside FusedOps) — and how do they interact?
+- What is the BlazeOp class hierarchy (BlazeOp → MicroOp/FusedOp), and how does the C++ kernel header parsing (`cpp_parser.py`) eliminate redundant Python declarations by treating `op.hpp` as the single source of truth?
+- How does the compilation pipeline work end-to-end — from `BlazeGraph` through CBEngine, SemEngine, CTArgEngine, kernel codegen, `UnifiedKernelDescriptor`, to `ProgramDescriptor` and dispatch via `ttnn.generic_op()`?
+- How does data flow between ops via the CBHandle chain (circular buffer IDs, page counts, data formats, core ranges), and how does the CBEngine auto-assign buffer IDs?
+- How does the per-RISC compilation model work — JIT compiling for NCRISC, BRISC, and TRISC with `COMPILE_FOR_*` guards and baked-in `static constexpr` CT args?
+- What is the op library structure and what categories of ops exist — data movement (mcast, gather, scatter, copy), compute (matmul variants, rmsnorm, rope, activations), attention (SDPA, Flash MLA, GQA, DSA), and MoE (gates, routed experts, shared experts)?
+- How do FusedOps compose MicroOps — what is the FusedProgram context, how do CB aliases/scratch/output work, and what is the OverlappedView pattern for zero-copy L1 weight sharing?
+- How does the kernel codegen (`kernel_codegen.py`) auto-generate C++ kernel source from a BlazeGraph using PhaseInfo metadata?
+- What is the pipeline_builder system — how does PipelineGraph describe multi-host inference pipelines, how does SubmeshPartition carve MeshDevices into stage-sized submeshes, and how does topology-driven pipeline ordering work on Galaxy pods?
+- What is the pipeline_manager C++20 token scheduling library — how does PipelineManager handle writer/reader threads, token injection, result collection, and what are the internal data structures (user_table, prefill_queue, decode_staging, spec_decode_state)?
+- How does the KV cache migration library work for disaggregated inference — what are the migration_layer, device I/O, DCN transport, and MPI-based cross-host migration components?
+- How does the interactive visualizer work — what does the JSON schema look like, and how does it render the dataflow DAG, CT/RT args, circular buffers, semaphores, spatial core grids, and L1 memory layouts?
+- What is the weight provider abstraction (SyntheticWeightProvider, StateDictWeightProvider, BlitzCacheWeightProvider) and how does it support different weight sourcing strategies?
+- How does the test infrastructure work — what are the test categories (infra, micro-ops, fused-ops, backed, generality, migration, pipeline_builder) and how do silicon tests run?
+- What model-level integrations exist (DeepSeek V3, GLM-5.1) and how are they structured as multi-stage distributed pipelines?
+
+---
+
