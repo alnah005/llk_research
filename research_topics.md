@@ -180,3 +180,44 @@ This file tracks research topics that the Architect needs to investigate for mak
 
 ---
 
+## Comprehensive Understanding of DeepSeek V3 B1 (Batch-1 Decode Implementation on TT-Blaze)
+**Date:** 2026-05-08
+**Status:** Pending
+**Why Needed:** DeepSeek V3 B1 is a production-grade, batch-1 decode implementation of the DeepSeek V3 671B-parameter Mixture-of-Experts model built on the TT-Blaze kernel composition framework for Tenstorrent hardware. It features a complete custom op library (~20 micro-ops and ~10 fused ops with hand-written C++ kernels), a unified kernel descriptor system, multi-host pipeline parallelism across Galaxy pods (single-pod, 2-pod, superpod configurations), Flash MLA attention, DeepSeek-specific MoE gating with routed and shared experts, DRAM-streaming matmul for large weight matrices, a Blitz weight caching system, and a demo runtime with CLI. Understanding this implementation end-to-end — from the model architecture mapping and weight preparation, through the op library design (micro-ops, fused ops, unified kernels), the multi-device scaleout strategy, and the inference runtime — is essential for developers working on large-model deployment on Tenstorrent systems and for understanding how TT-Blaze is used to build real production models. The source code lives at /localdev/salnahari/testing_dir/tt-metal/models/demos/deepseek_v3_b1.
+**Questions:**
+- What is the overall architecture of the DeepSeek V3 B1 implementation — how does model.py define the transformer layers, attention, MoE, and the full forward pass, and how does it map the 671B-parameter DeepSeek V3 architecture to TT-Blaze ops?
+- How does the micro-op library work — what does each micro-op (matmul, rope, rmsnorm, sdpa, sdpa_tail, sdpa_reduce_to_all, flash_mla, gather, mcast, kv_cache_update, create_q_heads, deepseek_moe_gate, kn_sliced_matmul, dram_streaming_matmul, eltwise_add, local_reduce, reduce_to_one_b1, tilize_8x32, sampling/argmax, host_io, d2d_exchange, ccl_all_reduce, ccl_broadcast, pipeline_block) do, and how are they structured as TT-Blaze MicroOps with paired Python op.py and C++ kernel files?
+- How does the fused-op library work — what does each fused op (moe, moe_routed_expert, shared_expert, pre_sdpa, post_sdpa, broadcast_rms, lm_head_sampling, kv_cache_branch, gated_local_reduce, gated_local_reduce_down_proj, down_proj) compose from micro-ops, and what fusion strategies do they implement for performance?
+- How does the unified kernel system work — what is the relationship between unified_kernel_descriptor.py, the unified_kernels/*.hpp headers, and the per-op kernel .cpp files, and how does the kernel_op_api.hpp tie them together?
+- How does the attention mechanism work — how do pre_sdpa, sdpa, flash_mla, sdpa_tail, sdpa_reduce_to_all, post_sdpa, and create_q_heads compose to implement DeepSeek V3's Multi-head Latent Attention (MLA) with compressed KV cache?
+- How does the MoE (Mixture of Experts) subsystem work — how do deepseek_moe_gate, moe, moe_routed_expert, shared_expert, gated_local_reduce, and down_proj implement DeepSeek V3's 256-expert routing with top-K selection, expert parallelism, and shared expert fusion?
+- How does multi-device scaleout work — what do the scaleout_configs (single_pod, 2_pod, superpod YAML and textproto files) define, how is the model partitioned across pipeline stages, and how do d2d_exchange, ccl_all_reduce, ccl_broadcast, and reduce_to_one_b1 handle inter-device communication?
+- How does weight preparation work — what does prepare_weights.py do to transform HuggingFace DeepSeek V3 checkpoints into the device-ready format, and how does blitz_decode_weights.py implement the Blitz weight caching system for fast model loading?
+- How does the circular buffer management work — what does circular_buffer_utils.py provide, and how are circular buffers allocated and shared across ops in fused programs?
+- How does the demo/inference runtime work — what do demo/runner.py, demo/runtime.py, and demo/cli.py implement for end-to-end token generation, and how do they handle continuous decode with the pipeline?
+- How does DRAM-streaming matmul work — what problem does dram_streaming_matmul solve (large weight matrices that don't fit in L1), and how does it stream weight tiles from DRAM during computation?
+- What is the data flow through a single decode step — from host input through embedding, through N transformer layers (attention + MoE/MLP), through the LM head, to argmax/sampling output — and how does each stage map to specific ops?
+
+---
+
+## Using TT-Blaze on T3K and Multi-Device Configurations via TT-Symbiote
+**Date:** 2026-05-08
+**Status:** Completed
+**Guide:** using_tt_blaze_on_t3k_and_multi_device_configurations_via_tt_symbiote/
+**Why Needed:** TT-Symbiote is a PyTorch-to-TTNN acceleration framework that transparently replaces PyTorch modules with TTNN-optimized equivalents, and it already has multi-device support (DistributedConfig, ShardTensor2dMesh, CCL integration, device arch enums for T3K/TG/P150x4/P150x8/BHGLX). TT-Blaze is Tenstorrent's kernel composition framework with a sophisticated multi-device pipeline system (PipelineGraph, SubmeshPartition, topology-based auto-discovery, pipeline_manager token scheduling). Understanding how TT-Blaze's pipeline capabilities can be used on T3K and other multi-device configurations — and specifically how TT-Symbiote's transparent module replacement approach could leverage or integrate with TT-Blaze's pipeline infrastructure — is essential for enabling high-performance distributed inference of large models through the Symbiote pathway. The source code for TT-Symbiote lives at /localdev/salnahari/testing_dir/tt-metal/models/experimental/tt_symbiote, TT-Blaze at /localdev/salnahari/testing_dir/tt-blaze, and TT-Metal at /localdev/salnahari/testing_dir/tt-metal.
+**Questions:**
+- How does TT-Symbiote's current multi-device support work — what do DistributedConfig, DistributedTensorConfig, ShardTensor2dMesh, and ConcatMesh2dToTensor do, and how does the DeviceInit/set_device flow handle mesh devices with get_num_devices() > 1?
+- How does TT-Symbiote currently handle tensor parallelism — how are weights sharded across devices via mesh_mapper, how are activations distributed, and how does the CCL manager (TT_CCL) perform all-reduce/all-gather operations?
+- What does TT-Blaze's PipelineGraph/PipelineLayout system provide for multi-device orchestration — how do Nodes, Edges, SubmeshPartition, and topology-based auto-discovery (build_topology) work together to create multi-stage pipelines across physical chips?
+- How does TT-Blaze's pipeline_manager C++20 token scheduling library handle multi-device inference — what are the writer/reader thread model, token injection, result collection, and how does it manage continuous batching across pipeline stages?
+- What are the concrete steps needed to run a model on T3K (8 Wormhole chips) using TT-Symbiote — device initialization, mesh shape configuration (1,8), fabric config, weight sharding strategy, and CCL operations?
+- How does TT-Symbiote's module replacement approach interact with TT-Blaze's FusedOp/MicroOp composition — could Symbiote-replaced modules delegate to Blaze ops for better performance, and what are the integration boundaries?
+- What are the different multi-device parallelism strategies available through each framework — data parallelism (batch sharding), tensor parallelism (weight/activation sharding), pipeline parallelism (stage-based), and how do they compare in terms of performance and complexity?
+- How do existing multi-device model implementations (GLM-4.7, Qwen3-Coder-Next in Symbiote; DeepSeek V3, GLM-5.1 in Blaze) structure their distributed execution, and what patterns can be reused?
+- What are the device-specific considerations for T3K vs TG (Galaxy) vs P150x4/P150x8/BHGLX — topology differences, bandwidth constraints, fabric configuration, and how does each framework adapt to these?
+- What are the current limitations and gaps — which models are too large for single-device but not yet supported on multi-device, what operations don't parallelize well, and what infrastructure is missing for full pipeline parallelism through Symbiote?
+- How does the MESH_DEVICE environment variable drive the entire multi-device configuration — how do conftest.py fixtures create mesh devices, how does run_on_devices decorator restrict execution, and how do tests parametrize across device topologies?
+- What is the recommended path for taking a single-device TT-Symbiote model and scaling it to T3K — step-by-step guide covering model analysis, parallelism strategy selection, module adaptation, weight distribution, CCL operation insertion, and validation?
+
+---
+
