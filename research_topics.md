@@ -182,7 +182,8 @@ This file tracks research topics that the Architect needs to investigate for mak
 
 ## Comprehensive Understanding of DeepSeek V3 B1 (Batch-1 Decode Implementation on TT-Blaze)
 **Date:** 2026-05-08
-**Status:** Pending
+**Status:** Completed
+**Guide:** comprehensive_understanding_of_deepseek_v3_b1/
 **Why Needed:** DeepSeek V3 B1 is a production-grade, batch-1 decode implementation of the DeepSeek V3 671B-parameter Mixture-of-Experts model built on the TT-Blaze kernel composition framework for Tenstorrent hardware. It features a complete custom op library (~20 micro-ops and ~10 fused ops with hand-written C++ kernels), a unified kernel descriptor system, multi-host pipeline parallelism across Galaxy pods (single-pod, 2-pod, superpod configurations), Flash MLA attention, DeepSeek-specific MoE gating with routed and shared experts, DRAM-streaming matmul for large weight matrices, a Blitz weight caching system, and a demo runtime with CLI. Understanding this implementation end-to-end — from the model architecture mapping and weight preparation, through the op library design (micro-ops, fused ops, unified kernels), the multi-device scaleout strategy, and the inference runtime — is essential for developers working on large-model deployment on Tenstorrent systems and for understanding how TT-Blaze is used to build real production models. The source code lives at /localdev/salnahari/testing_dir/tt-metal/models/demos/deepseek_v3_b1.
 **Questions:**
 - What is the overall architecture of the DeepSeek V3 B1 implementation — how does model.py define the transformer layers, attention, MoE, and the full forward pass, and how does it map the 671B-parameter DeepSeek V3 architecture to TT-Blaze ops?

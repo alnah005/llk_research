@@ -1,0 +1,3 @@
+1. **File:** `01_symbiote_tensor_parallel_models.md`, Section 6.3 (Gemma4), Warning block near line 135.
+   **Error:** The warning states that `TTNNGemma4TextModel` allocates `_decode_cache_position` at "`gemma4_modules.py`, lines 191-216". The code is actually in `gemma4_text.py` at those line numbers (`models/gemma4_text.py`, lines 191-216). A reader looking in `gemma4_modules.py` would not find this code -- that file is only 239 lines and lines 191-216 contain the FFN block and `TTNNGemma4LayerStack`, not `_decode_cache_position`.
+   **Fix:** Change the file reference from `gemma4_modules.py` to `gemma4_text.py`.
