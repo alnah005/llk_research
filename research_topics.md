@@ -222,3 +222,23 @@ This file tracks research topics that the Architect needs to investigate for mak
 
 ---
 
+## Abstracting CB Management for PyTorch Developers Using TT-Blaze
+**Date:** 2026-05-11
+**Status:** Completed
+**Guide:** abstracting_cb_management_for_pytorch_developers_using_tt_blaze/
+**Why Needed:** PyTorch developers working with TT-Blaze currently need to understand circular buffer (CB) constraints, 32x32 tile padding, face-order memory layout, data format conversions, L1 memory budgeting, and hardware address transforms to use Blaze ops effectively. This creates a significant barrier to entry. An abstraction layer that maps standard PyTorch tensor semantics — arbitrary shapes, familiar data types, automatic broadcasting, shape inference — to TT-Blaze's tile/CB model would dramatically lower this barrier and enable PyTorch developers to compose Blaze ops without manual CB plumbing. This research should explore what such an abstraction layer looks like architecturally, how it handles shape propagation and padding through op chains, how it integrates with TT-Blaze's existing CBHandle/FusedProgram/CBEngine systems, and what the performance trade-offs are versus hand-tuned CB management. The source code for TT-Blaze lives at /localdev/salnahari/testing_dir/tt-blaze, TT-Metal at /localdev/salnahari/testing_dir/tt-metal, and TT-Symbiote at /localdev/salnahari/testing_dir/tt-metal/models/experimental/tt_symbiote.
+**Questions:**
+- How can a PyTorch tensor of arbitrary shape [A, B, C, D] be automatically decomposed into tiles and mapped to CBs without the developer specifying tile geometry, face layout, or padding?
+- What abstraction layer design patterns (from frameworks like TVM, Triton, XLA, MLIR, or TT-Symbiote's module replacement) can inform a "TensorAdapter" that sits between PyTorch and TT-Blaze's CBHandle/FusedProgram API?
+- How should shape metadata (logical shape vs padded shape vs tile decomposition) propagate through chains of ops so downstream ops automatically receive correct shape information?
+- How can padding be managed transparently — including zero-padding for matmul, -inf padding for softmax, and mask-based padding for reductions — without requiring the developer to specify padding strategy per op?
+- How should the abstraction handle data format selection and conversion (Float32, BFloat16, Bfp8_b, etc.) between ops that may prefer different formats, including automatic format negotiation between producers and consumers?
+- How can the abstraction automatically determine optimal CB sizing (num_pages, page_size) and blocking strategies (RT_DIM, CT_DIM, KT_DIM for matmul) based on tensor shapes and available L1 memory?
+- How should the abstraction handle broadcasting semantics — mapping PyTorch-style broadcasting to TT-Blaze's bcast_rows/bcast_cols/bcast_scalar patterns?
+- What is the integration surface between this abstraction and TT-Blaze's existing CBHandle, FusedProgram, CBEngine, SemEngine, and CTArgEngine systems — should it wrap, extend, or replace them?
+- How can the abstraction support op fusion (combining multiple PyTorch ops into a single FusedOp) while maintaining correct shape and padding tracking across the fused boundary?
+- What are the performance implications of the abstraction layer — where does automation sacrifice performance compared to hand-tuned CB management, and how can escape hatches be provided for power users?
+- How do existing higher-level frameworks (TT-Symbiote's transparent module replacement, TT-Forge's graph compiler, PyTorch's FX/torch.compile, JAX's XLA lowering) solve similar tensor-to-hardware mapping problems, and what lessons apply?
+- What does the end-to-end developer API look like — from defining a PyTorch module to having it run on Tenstorrent hardware via TT-Blaze with zero manual CB, padding, or tile management?
+
+---
