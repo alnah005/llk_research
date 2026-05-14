@@ -267,7 +267,8 @@ This file tracks research topics that the Architect needs to investigate for mak
 
 ## Comprehensive Guide to Creating New Micro-Ops in TT-Blaze
 **Date:** 2026-05-13
-**Status:** Pending
+**Status:** Completed
+**Guide:** comprehensive_guide_to_creating_new_micro_ops_in_tt_blaze/
 **Why Needed:** Developers working with TT-Blaze need a complete, practical guide to creating new micro-ops from scratch. This includes the full lifecycle: designing the Python class and C++ kernel, understanding how compile-time args flow from Python to the generated header, allocating circular buffers and semaphores, handling device-specific grid configurations (harvested Blackhole P150 with 11x10 grids, unharvested P300 with 13x10 grids, multi-device Galaxy/T3K mesh configurations), composing micro-ops into fused ops, writing tests, debugging hangs and correctness issues, and avoiding common pitfalls. The source code lives at /localdev/salnahari/testing_dir/tt-blaze.
 **Questions:**
 - What is the complete anatomy of a TT-Blaze micro-op — what are the required files (op.py, kernels/op.hpp, __init__.py), how does auto-discovery and registration work (register_all() in ops/__init__.py → BlazeOp.register() → OpSpec + CTArgSchema + PhaseInfo), and what is the relationship between the Python class (MicroOp subclass) and the C++ Op struct?

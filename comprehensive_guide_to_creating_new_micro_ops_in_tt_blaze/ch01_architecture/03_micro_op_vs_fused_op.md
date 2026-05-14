@@ -1,0 +1,428 @@
+# 1.3 MicroOp vs. FusedOp
+
+## What you will learn
+
+- What a MicroOp is: the atomic unit of TT-Blaze, consisting of a C++ kernel header and a Python class with `emit()`.
+- What a FusedOp is: a composition of MicroOps via chained `emit()` calls.
+- The `BlazeOp -> MicroOp / FusedOp` class hierarchy and what each level enforces.
+- How the `name` field drives auto-discovery and creates both `blaze.<name>()` and `blaze.<name>.emit()` handles.
+- When to write a new MicroOp vs. when to compose existing ones into a FusedOp.
+- The dual API surface: `blaze.<name>(...)` for graph construction and `blaze.<name>.emit(f, ...)` for FusedProgram composition.
+- The CT arg contract between Python `emit()` declarations and C++ kernel structs.
+
+---
+
+## 1.3.1 MicroOp: the atomic unit
+
+A **MicroOp** is the smallest composable building block in TT-Blaze. It consists of exactly two artifacts:
+
+1. **A C++ kernel header** (`kernels/op.hpp`): Contains the `Op` struct template with `init()`, `operator()()`, and `teardown()` methods, plus CT arg struct declarations (`CoreCTArgs`, `ReaderCTArgs`, `WriterCTArgs`, `ComputeCTArgs`).
+
+2. **A Python class** (subclass of `MicroOp` in `op.py`): Declares the op's `name`, ports (`Input`, `Output`), and provides `emit()` for composition plus `compose()` for the graph-based compilation path.
+
+Here is the Matmul MicroOp, showing both halves.
+
+**Python side** (`blaze/ops/matmul/op.py`):
+
+```python
+class Matmul(MicroOp):
+    """Matrix multiply: in0 (activations) x in1 (weights) -> out."""
+
+    name: str = "matmul"
+    math_fidelity: str = "LoFi"
+
+    in0: Input = Input()
+    in1: Input = Input()
+    out: Output = Output()
+
+    @classmethod
+    def compose(cls, f, tensors, output, user_args):
+        cls.emit(f, tensors["in0"], tensors["in1"],
+                 prefix=user_args.get("prefix", "matmul"))
+
+    @staticmethod
+    def emit(f, in0, in1, *, prefix="matmul", pop_in0=True) -> CBHandle:
+        # ... resolve inputs, allocate CBs, register CT args ...
+        f.ncrisc_ct_args([
+            (f"{prefix}.k_num_tiles", k_num_tiles),
+            (f"{prefix}.in0_is_tensor_backed", in0_is_tensor_backed),
+        ])
+        f.trisc_ct_args([
+            (f"{prefix}.in1", in1_cb),
+            (f"{prefix}.out", out),
+            (f"{prefix}.k_num_tiles", k_num_tiles),
+            (f"{prefix}.out_w_per_core", out_w_per_core),
+        ])
+        return f.output("matmul", out, core_ranges=active_ranges,
+                        prefix=prefix, in0=in0, in1=in1)
+```
+
+**C++ side** (`blaze/ops/matmul/kernels/op.hpp`):
+
+```cpp
+namespace blaze {
+struct Matmul {
+    template <typename A> struct CoreCTArgs {
+        static constexpr Flag is_active = A::is_active;
+        static constexpr Flag pop_in0 = A::pop_in0;
+        static constexpr CB in0 = A::in0;
+    };
+    template <typename A> struct ComputeCTArgs {
+        static constexpr CB in1 = A::in1;
+        static constexpr CB out = A::out;
+        static constexpr uint32_t k_num_tiles = A::k_num_tiles;
+        static constexpr uint32_t out_w_per_core = A::out_w_per_core;
+    };
+    template <typename A> struct ReaderCTArgs {
+        static constexpr uint32_t k_num_tiles = A::k_num_tiles;
+        static constexpr uint32_t in0_is_tensor_backed = A::in0_is_tensor_backed;
+    };
+
+    template <typename Args>
+    class Op {
+        using core_cta = CoreCTArgs<Args>;
+        using dm0_cta = ReaderCTArgs<Args>;
+        using compute_cta = ComputeCTArgs<Args>;
+    public:
+        void init() { /* NCRISC: setup sharded buffer */ }
+        void operator()() { /* TRISC: matmul compute */ }
+        void teardown() {}
+    };
+};
+}  // namespace blaze
+```
+
+The Python `emit()` and the C++ `Op` struct are two sides of the same contract. The `emit()` method declares *what* the kernel needs (which CBs, how many tiles, which semaphores). The C++ struct consumes those declarations as `constexpr` template parameters and implements the actual computation.
+
+### Auto-derivation from the kernel header
+
+MicroOps minimize boilerplate through automatic derivation. When a MicroOp's `ct_args` list is empty (the common case), `register()` calls `_auto_derive_from_kernel_hpp()`, which:
+
+1. Parses the C++ header with `blaze/cpp_parser.py`.
+2. Extracts the struct name (sets `op_class`).
+3. Extracts `CB`, `Semaphore`, `Flag`, `PerCore`, and `uint32_t`/`bool` fields from `CoreCTArgs`, `ReaderCTArgs`, `WriterCTArgs`, and `ComputeCTArgs` structs.
+4. Maps each field to a `CompileTimeArg` with the correct `kind` (CB, Sem, Derived, etc.) and RISC targeting.
+5. Detects whether `init()` and `teardown()` have empty bodies (for codegen optimization).
+6. Sets `is_inter_core` based on whether both BRISC and NCRISC guards are present.
+
+## 1.3.2 FusedOp: composition of MicroOps
+
+A **FusedOp** composes multiple MicroOps (and potentially other FusedOps) into a single fused kernel by chaining their `emit()` calls. It has:
+
+- **No C++ kernel header of its own** (by default): The kernel is auto-generated by `blaze/kernel_codegen.py` from the shadow graph that `emit()` calls build internally.
+- **A `compose()` method** that chains sub-op `emit()` calls on a shared `FusedProgram`.
+- **An optional `emit()` method** that makes the FusedOp itself reusable as a building block in higher-level compositions.
+
+Here is BroadcastRMSNorm (`blaze/ops/broadcast_rmsnorm/op.py`), which composes CclBroadcast and RMSNorm:
+
+```python
+class BroadcastRMSNorm(FusedOp):
+    """Fused CCL broadcast + RMSNorm."""
+
+    name: str = "broadcast_rmsnorm"
+    math_fidelity: str = "LoFi"
+
+    src: Input = Input()
+    intermediate: Input = Input()
+    gamma: Input = Input()
+    output: Output = Output()
+
+    @classmethod
+    def compose(cls, f, tensors, output, user_args):
+        cls.emit(f, tensors["src"], tensors["intermediate"], tensors["gamma"],
+                 prefix=user_args.get("prefix", "broadcast_rmsnorm"),
+                 sender_coord=user_args["sender_coord"], ...)
+
+    @staticmethod
+    def emit(f, src, intermediate, gamma, *, prefix, sender_coord, ...):
+        # Phase 1: CCL broadcast
+        bcast_handle = CclBroadcast.emit(
+            f, src, intermediate,
+            prefix=BlazeOp.child_prefix(prefix, "ccl_broadcast"), ...)
+
+        # Phase 2: RMSNorm on the broadcast output
+        intermed_handle = f.cb_for_tensor(intermediate)
+        return RMSNorm.emit(
+            f, intermed_handle, gamma,
+            prefix=BlazeOp.child_prefix(prefix, "rmsnorm"), ...)
+```
+
+The key pattern: `BroadcastRMSNorm.emit()` calls `CclBroadcast.emit()` followed by `RMSNorm.emit()` on the same `FusedProgram`. Each sub-op registers its own CBs, CT args, and semaphores. The `FusedProgram` accumulates all of them, and `build()` produces a single fused kernel that executes both ops in sequence.
+
+### Prefix scoping with `child_prefix()`
+
+When composing MicroOps inside a FusedOp, each sub-op's CT args must be namespaced to avoid collisions. The `prefix` parameter handles this, and `BlazeOp.child_prefix()` builds nested prefixes:
+
+```python
+# BlazeOp.child_prefix("broadcast_rmsnorm", "ccl_broadcast")
+# -> "broadcast_rmsnorm__ccl_broadcast"
+
+# BlazeOp.child_prefix("broadcast_rmsnorm", "rmsnorm")
+# -> "broadcast_rmsnorm__rmsnorm"
+```
+
+The delimiter is `__` (double underscore), defined in `BlazeOp.CHILD_PREFIX_DELIMITER`. For CB names, the delimiter is `___` (triple underscore), from `BlazeOp.CB_NAME_DELIMITER`. This keeps the CT arg namespace flat and collision-free:
+
+```
+CT args from CclBroadcast:
+  broadcast_rmsnorm__ccl_broadcast.src
+  broadcast_rmsnorm__ccl_broadcast.receiver_semaphore
+
+CT args from RMSNorm:
+  broadcast_rmsnorm__rmsnorm.input
+  broadcast_rmsnorm__rmsnorm.gamma
+  broadcast_rmsnorm__rmsnorm.output
+```
+
+In the generated C++ kernel, these map to `ct_args::broadcast_rmsnorm__ccl_broadcast` and `ct_args::broadcast_rmsnorm__rmsnorm` template argument structs.
+
+## 1.3.3 The `BlazeOp` class hierarchy
+
+```
+BlazeOp                          (abstract base: ports, name, CT args, registry)
+  |
+  +-- MicroOp                    (atomic, has kernel header)
+  |     +-- Matmul               (name="matmul")
+  |     +-- RMSNorm              (name="rmsnorm")
+  |     +-- Mcast                (name="mcast")
+  |     +-- Copy                 (name="copy")
+  |     +-- Gather               (name="gather")
+  |     +-- ...                  (~50+ MicroOps)
+  |
+  +-- FusedOp                    (composition, no kernel header)
+        +-- BroadcastRMSNorm     (name="broadcast_rmsnorm")
+        +-- DenseMLP             (name="dense_mlp")
+        +-- SwiGLU               (name="swiglu")
+        +-- MoE                  (name="moe")
+        +-- ...                  (~40+ FusedOps)
+```
+
+### What `BlazeOp` provides
+
+The base class (`blaze/blaze_op.py`) contributes:
+
+- **Port descriptors**: `Input()`, `Output()`, `Internal()` class attributes that declare the op's tensor interface.
+- **Identity**: `name` (string), `kernel` (path to kernel header), `op_class` (C++ struct name).
+- **Compute config**: `math_fidelity`, `math_approx_mode`.
+- **CT arg declarations**: `ct_args` list of `CompileTimeArg` entries.
+- **Registration**: `register()` classmethod that auto-generates `OpSpec`, `CTArgSchema`, `PhaseInfo`, and `FusedOpConfig` from class attributes and registers them in global registries.
+- **Class registry**: `_class_registry` dict mapping `name` -> class for runtime lookup.
+- **Dual API**: `graph_call()` for graph mode, `emit()` for imperative mode.
+- **Prefix utilities**: `child_prefix()` and `cb_name()` for scoped naming in composition.
+
+### What `MicroOp` enforces
+
+```python
+# blaze/blaze_op.py
+class MicroOp(BlazeOp):
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if _is_abstract_op(cls):
+            return
+        if not cls.op_class:
+            cls.op_class = cls.__name__
+        if cls.emit is BlazeOp.emit:
+            raise TypeError(f"{cls.__name__}: MicroOp must override emit()")
+        if cls.compose.__func__ is BlazeOp.compose.__func__:
+            raise TypeError(
+                f"{cls.__name__}: MicroOp must override compose() "
+                "to support the Graph API path"
+            )
+```
+
+MicroOp requires both `emit()` and `compose()`. Missing either causes a clear `TypeError` at import time -- not a confusing failure at runtime.
+
+### What `FusedOp` enforces
+
+```python
+# blaze/blaze_op.py
+class FusedOp(BlazeOp):
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if _is_abstract_op(cls):
+            return
+        if cls.compose.__func__ is BlazeOp.compose.__func__:
+            raise TypeError(f"{cls.__name__}: FusedOp must override compose()")
+```
+
+FusedOp requires `compose()` but `emit()` is optional. Not all FusedOps are themselves reusable building blocks -- some are top-level entry points only.
+
+| Property | MicroOp | FusedOp |
+|----------|---------|---------|
+| C++ kernel header | Required (`kernels/op.hpp`) | Not needed (auto-generated) |
+| `emit()` | Required -- defines the atomic composition building block | Optional -- only if the FusedOp is itself reusable |
+| `compose()` | Required -- maps tensors to `emit()` | Required -- chains MicroOp `emit()` calls |
+| `ct_args` | Auto-derived from header or manual | Not needed (composed ops handle it) |
+| `phase` / `PhaseInfo` | Auto-derived from header | Not applicable |
+
+## 1.3.4 Auto-discovery and the `name` field
+
+The `name` class attribute is the single identifier that connects a BlazeOp subclass to the rest of the system. When TT-Blaze is imported, `blaze/__init__.py` triggers auto-discovery:
+
+**Step 1: Package scanning** (`blaze/ops/__init__.py`):
+
+```python
+def register_all():
+    """Auto-discover, register, and re-export all BlazeOp subclasses."""
+    discovered = []
+    for info in pkgutil.iter_modules(__path__):
+        if info.name in _skip_subpackages:
+            continue
+        mod = importlib.import_module(f".{info.name}.op", __package__)
+        for _, obj in inspect.getmembers(mod, inspect.isclass):
+            if (issubclass(obj, BlazeOp) and obj is not BlazeOp
+                    and obj.name and obj.__module__ == mod.__name__):
+                obj.register()
+                discovered.append(obj)
+    return discovered
+```
+
+**Step 2: Registration** (`BlazeOp.register()`):
+
+When `register()` is called, it:
+1. For MicroOps: auto-derives from the kernel header, then delegates to `BlazeOp.register()`.
+2. Creates an `OpSpec` from the class's port descriptors, kernel path, and compute config.
+3. Registers the `OpSpec` in the global `_OP_REGISTRY` (`blaze/registry.py`).
+4. If `ct_args` are present, creates and registers a `CTArgSchema` (`blaze/ct_args.py`).
+5. If `phase` info is present, creates and registers a `PhaseInfo` (`blaze/kernel_codegen.py`).
+6. If `compose()` is overridden, creates and registers a `FusedOpConfig` (`blaze/blaze_op.py`).
+7. Stores the class in `BlazeOp._class_registry[cls.name]`.
+
+**Step 3: API handle creation** (`blaze/__init__.py`):
+
+```python
+for _cls in _register_all():
+    setattr(_blaze_module, _cls.name, _OpHandle(_cls))
+    _op_names.append(_cls.name)
+```
+
+After registration, the op's `name` is used in five distinct roles:
+
+| Role | Usage | Example |
+|---|---|---|
+| **Graph API handle** | `blaze.<name>(...)` | `blaze.mcast(src, grid=...)` |
+| **Composition API** | `blaze.<name>.emit(f, ...)` | `blaze.mcast.emit(f, src, prefix="act")` |
+| **OpSpec lookup** | `get_op_spec("<name>")` | `get_op_spec("mcast")` |
+| **CT arg schema lookup** | `get_ct_schema("<name>")` | `get_ct_schema("mcast")` |
+| **Phase info lookup** | `get_phase_info("<name>")` | `get_phase_info("mcast")` |
+
+To add a new op, you need only:
+
+1. Create a directory `blaze/ops/<name>/`.
+2. Create `blaze/ops/<name>/op.py` with a `MicroOp` or `FusedOp` subclass that sets `name = "<name>"`.
+3. (For MicroOps) Create `blaze/ops/<name>/kernels/op.hpp` with the C++ implementation.
+
+No manual wiring in `__init__.py`, no registration calls in a central file. The auto-discovery mechanism handles everything.
+
+## 1.3.5 The dual API surface
+
+The `_OpHandle` class and the two API modes (graph API via `blaze.<name>(...)` and composition API via `blaze.<name>.emit(f, ...)`) were described in Section 1.2.1. The "when to use which" guidance is in Section 1.2.5. Here we focus on the bridge between the two APIs.
+
+### The bridge: `compose()`
+
+The `compose()` class method bridges the two APIs. When the `BlazeCompiler` encounters a graph node, it creates a `FusedProgram` and calls `compose()`, which maps the tensor dict to `emit()` calls:
+
+```python
+# MicroOp compose -- delegates to emit()
+@classmethod
+def compose(cls, f, tensors, output, user_args):
+    cls.emit(f, tensors["in0"], tensors["in1"],
+             prefix=user_args.get("prefix", "matmul"))
+
+# FusedOp compose -- chains multiple emit() calls
+@classmethod
+def compose(cls, f, tensors, output, user_args):
+    broadcast_cb = CclBroadcast.emit(f, tensors["src"], ...)
+    RMSNorm.emit(f, broadcast_cb, tensors["gamma"], ...)
+```
+
+Both APIs ultimately produce the same compiled kernel and program descriptor.
+
+## 1.3.6 When to write a MicroOp vs. a FusedOp
+
+### Write a MicroOp when:
+
+- You need a **new computational primitive** that does not exist in the current op library (e.g., a new activation function, a new reduction pattern, a custom matrix multiply variant).
+- You need a **new data movement pattern** (e.g., a scatter with custom addressing, a new NOC transfer protocol with persistent sender state).
+- **Performance demands it.** A fused composition of existing MicroOps has overhead (extra CB hops, extra sync points) that a custom C++ implementation can avoid.
+
+A MicroOp requires:
+1. A Python class in `blaze/ops/<name>/op.py` with `name`, port descriptors, `emit()`, and `compose()`.
+2. A C++ kernel header in `blaze/ops/<name>/kernels/op.hpp` with CT arg structs and the `Op` class.
+3. Registration of the Op struct in `blaze/kernels/ops.hpp` (the aggregator include).
+
+### Write a FusedOp when:
+
+- The desired behavior is a **composition of existing MicroOps** (e.g., Mcast + Matmul + Gather).
+- You want to **eliminate kernel launch overhead** by fusing multiple phases into one kernel dispatch.
+- You want **inter-op L1 reuse** -- intermediate data stays in L1 scratch CBs instead of round-tripping through DRAM.
+- The **pattern is reusable** across model layers (e.g., broadcast + normalization, or matmul + activation + reduce).
+
+A FusedOp requires only:
+1. A Python class in `blaze/ops/<name>/op.py` with `name`, port descriptors, and `compose()`.
+2. No C++ code -- the kernel is auto-generated or can reference a handwritten kernel.
+
+### Real-world examples
+
+| Op | Type | Rationale |
+|---|---|---|
+| `Matmul` | MicroOp | Requires custom compute LLK calls (`custom_mm_block`) |
+| `RMSNorm` | MicroOp | Requires custom compute pipeline (square, reduce, rsqrt, multiply) |
+| `Mcast` | MicroOp | Requires custom NOC multicast commands with persistent sender state |
+| `Copy` | MicroOp | Requires flexible NOC read/write with configurable sync flags |
+| `BroadcastRMSNorm` | FusedOp | Chains `CclBroadcast.emit()` + `RMSNorm.emit()` -- no new C++ needed |
+| `DenseSwiglu` | FusedOp | Chains matmul + SwiGLU activation |
+| `GQAPreSDPA` | FusedOp | Chains RMSNorm + matmul + RoPE + KV cache update |
+
+### The gray zone
+
+Some ops start as FusedOps and later become MicroOps when the fused composition proves too slow. The framework supports this migration: replace the `FusedOp` with a `MicroOp` that has the same `name`, ports, `emit()` signature, and `compose()` entry point. All callers continue to work unchanged because they only interact through the `name`-based API.
+
+### The typical progression
+
+1. **Start by composing existing MicroOps** into a FusedOp. This is the fastest path to a working implementation.
+2. **If a primitive is missing**, write a new MicroOp for that specific primitive, then compose it with others in a FusedOp.
+3. **If performance is critical**, you may replace the auto-generated kernel with a handwritten one (set `kernel = "path/to/kernel.cpp"` on the FusedOp class), or migrate the FusedOp to a MicroOp entirely.
+
+## 1.3.7 The CT arg contract between Python and C++
+
+The connection between the Python `emit()` method and the C++ kernel header is mediated by CT arg names. The convention is:
+
+$$\text{CT arg name} = \texttt{prefix}.\texttt{field\_name}$$
+
+For example, with `prefix = "matmul"`:
+
+| Python `emit()` declaration | CT arg name | C++ struct field |
+|---|---|---|
+| `f.trisc_ct_args([(f"{prefix}.in1", in1_cb)])` | `matmul.in1` | `ComputeCTArgs<A>::in1` |
+| `f.ncrisc_ct_args([(f"{prefix}.k_num_tiles", k)])` | `matmul.k_num_tiles` | `ReaderCTArgs<A>::k_num_tiles` |
+| `f.flag(f"{prefix}.is_active", cores)` | `matmul.is_active` | `CoreCTArgs<A>::is_active` |
+
+The C++ side reads these via the template parameter `A`, which is a struct from the `ct_args` namespace generated by the JIT:
+
+```cpp
+// In the generated kernel:
+using MatmulOp = blaze::Matmul::Op<ct_args::matmul>;
+// ct_args::matmul::in1 == the CB ID registered by emit()
+// ct_args::matmul::k_num_tiles == the integer value registered by emit()
+```
+
+The typed aliases (`CB`, `Semaphore`, `PerCore`, `Flag`) and their role in Python parsing were described in Section 1.1.4. This auto-derivation is why most MicroOps need no manual `ct_args` declaration in Python -- the kernel header is the single source of truth.
+
+## Key takeaways
+
+1. **MicroOp = C++ kernel header + Python `emit()`.** The kernel header (`op.hpp`) defines the hardware behavior; the Python class defines the composition interface. Together, they form the atomic unit of TT-Blaze. Most metadata is auto-derived from the header at registration time.
+
+2. **FusedOp = composition of MicroOp `emit()` calls.** No C++ needed. The `compose()` method chains MicroOp emits to create higher-level operations with automatic phase overlap. The kernel is auto-generated from the shadow graph.
+
+3. **The `name` field drives everything.** Set `name = "my_op"` and TT-Blaze auto-discovers your op, registers it, and creates `blaze.my_op(...)` and `blaze.my_op.emit(f, ...)` handles. It serves five roles: graph API handle, composition API, OpSpec lookup, CT arg schema lookup, and phase info lookup.
+
+4. **Two APIs, one implementation.** `blaze.<name>(...)` builds graph nodes (for `blaze.fuse()`); `blaze.<name>.emit(f, ...)` builds program state (for `FusedProgram`). Both share the same `emit()` implementation, bridged by `compose()`.
+
+5. **Start with FusedOp, drop to MicroOp when needed.** Compose existing primitives first. Only write a new MicroOp when you need new C++ logic (custom compute, custom NOC pattern, or custom data format handling). The framework supports migrating FusedOps to MicroOps without breaking callers.
+
+6. **Contracts are enforced at import time.** MicroOp requires both `emit()` and `compose()`; FusedOp requires `compose()`. Missing implementations fail fast with clear error messages.
+
+---
+
+**Next:** [Chapter 2 -- Anatomy of a Micro-Op](../ch02_anatomy/index.md)
