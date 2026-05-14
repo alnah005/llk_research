@@ -394,11 +394,11 @@ This creates two distinct performance benefits:
 
 **Benefit 2: True pipeline overlap across phases.** Because idle processors advance immediately, data movement and compute from *different phases* overlap temporally. In the example above, DM0 can begin setting up Matmul's input CBs (Phase 2) while TRISC is still blocked waiting for Mcast data (Phase 1). Once Mcast completes and TRISC starts computing Matmul, DM1 has already finished its Phase 1 work and races ahead. In a steady-state pipeline with repeated iterations, this gives:
 
-$$T_{\text{fused\_per\_iteration}} \approx \max(T_{\text{data\_movement}}, T_{\text{compute}})$$
+$$T_{\text{fusedperiteration}} \approx \max(T_{\text{datamovement}}, T_{\text{compute}})$$
 
 rather than the fully serialized separate-kernel cost:
 
-$$T_{\text{separate\_per\_iteration}} = T_{\text{dispatch}} + T_{\text{data\_movement}} + T_{\text{init}} + T_{\text{compute}}$$
+$$T_{\text{separateperiteration}} = T_{\text{dispatch}} + T_{\text{datamovement}} + T_{\text{init}} + T_{\text{compute}}$$
 
 For a single pass through the fused phases (not steady state), the benefit is the elimination of $T_{\text{dispatch}}$ and $T_{\text{init}}$ between phases, since processors are pre-positioned and begin the instant their input data arrives.
 
