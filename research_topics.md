@@ -310,3 +310,46 @@ This file tracks research topics that the Architect needs to investigate for mak
 - What are the migration path and backwards compatibility considerations — how would existing Blaze model code (DeepSeek V3, GLM-5.1) transition from generic_op dispatch to registered TTNN ops, and could both paths coexist during migration?
 
 ---
+
+## Cross-Process Persistence of tt-metal MeshProgramDescriptor
+**Date:** 2026-05-16
+**Status:** Pending
+**Why Needed:** Frameworks like blaze-nn that compose TT-Blaze descriptors and want to register first-class TTNN operations need to know whether a MeshProgramDescriptor produced in one Python process can be persisted (serialized to disk) and rehydrated in a fresh process. Specifically, CBDescriptor holds raw Buffer* pointers tied to live ttnn.Tensor objects, which suggests verbatim serialization is impossible. Understanding what subset of descriptor state is process-portable, what is not, and what cache representation is appropriate for two-phase emit-then-consume workflows is essential for designing build-time codegen pipelines.
+**Questions:**
+- Which fields of MeshProgramDescriptor and ProgramDescriptor reference process-local state (Buffer pointers, semaphore addresses, kernel-cache paths)?
+- Is there any existing serialization (FlatBuffers, reflection-based, pickle helpers) for ProgramDescriptor or its constituents?
+- What is the canonical pattern in tt-metal for caching a "shape" or "key" of a descriptor across processes — for use as a custom_program_hash seed or build-time codegen input?
+- What metadata is sufficient to deterministically rebuild a structurally-equivalent descriptor in a fresh process (kernel source paths, CT arg snapshots, CB sizes/page counts/data formats, semaphore counts, mesh coord ranges)?
+- How does TTNN's program cache itself persist (or not) across process boundaries, and what lessons apply?
+**Findings:** TBD
+
+---
+
+## CMake Pattern for Optional External Source Directories Referenced by Environment Variable
+**Date:** 2026-05-16
+**Status:** Pending
+**Why Needed:** Two-phase build workflows (e.g., generate sources in one process, compile them into a larger CMake project in a second process) need a robust, idiomatic CMake pattern for adding sources from a directory whose location is specified by an environment variable and which may not exist or may be empty. The pattern must guarantee that the build still succeeds in the absence of the directory and must re-pick-up newly-generated sources on incremental builds without requiring a full `cmake` re-run. Understanding the canonical pattern (file(GLOB CONFIGURE_DEPENDS) vs. explicit lists, target_sources vs. list APPEND, ENV vs. cache variable, the role of $ENV{...} expansion timing) is essential for designing additive build hooks.
+**Questions:**
+- What is the canonical CMake idiom for "add all .cpp files from $ENV{FOO}/generated/ to a target, but tolerate FOO unset, missing dir, or empty dir"?
+- When is `file(GLOB CONFIGURE_DEPENDS ...)` the right choice vs. forcing the user to re-run `cmake`? What are the known pitfalls of CONFIGURE_DEPENDS on Ninja vs. Make?
+- Should environment variables be expanded at configure time (`$ENV{...}`) or lifted into a cache variable for stability across re-configures?
+- How do existing TT-Metal/TTNN build patterns handle optional or generated sources (look for examples in ttnn/CMakeLists.txt, ccl experimental, etc.)?
+- What guard idioms (IS_DIRECTORY, EXISTS, list emptiness checks) are most robust, and what edge cases break them (symlinks, race conditions during codegen)?
+**Findings:** TBD
+
+---
+
+## Nanobind Module-Attribute Registration Lifecycle in TTNN
+**Date:** 2026-05-16
+**Status:** Pending
+**Why Needed:** Frameworks dispatching ops conditionally on `hasattr(ttnn, "blaze")` or `getattr(ttnn.blaze, op_name)` need to know exactly when registered TTNN ops become discoverable from Python relative to module import order. Specifically: do `register_operation<>` template instantiations at static-init time auto-populate the Python module, or is a separate `bind_registered_operation` call required? When is the parent ttnn nanobind module's init function called relative to user `import ttnn` statements? Can a registered op be lazily exposed as a submodule attribute without modifying TTNN's top-level nanobind init code? Understanding this lifecycle is essential for designing dispatch wrappers that probe `ttnn.<submodule>.<op>` correctly.
+**Questions:**
+- What is the call order: static-init of `register_operation<>` constexpr declarations vs. nanobind module init function vs. user `import ttnn`?
+- How does `bind_registered_operation` make a registered op visible as a Python module attribute — what nanobind machinery is involved (def, def_submodule, attr)?
+- Can a new submodule (e.g., `ttnn.blaze`) be added without modifying the top-level ttnn nanobind init, e.g., via a static initializer pattern that calls into a TTNN-provided registration callback?
+- What happens to ops registered after `import ttnn` has completed — are they hot-pluggable, or must they be present at static-init time?
+- Does TTNN provide any explicit submodule extension point or plugin hook for externally-registered ops?
+- How do other TTNN submodules (ttnn.experimental, ttnn.transformer) get their registration calls wired into the main init?
+**Findings:** TBD
+
+---
