@@ -353,3 +353,31 @@ This file tracks research topics that the Architect needs to investigate for mak
 **Findings:** TBD
 
 ---
+
+## Late-Attaching Nanobind Submodules from a Sibling Python Extension Module
+**Date:** 2026-05-16
+**Status:** Pending
+**Why Needed:** A potential pattern for plugging externally-built ops into TTNN is to ship them as a *separate* nanobind extension (`NB_MODULE(_blaze_extension, m)`) and then late-bind it onto the TTNN Python namespace via a Python-side `ttnn.blaze = _blaze_extension` assignment. Before recommending this pattern over modifying tt-metal's top-level nanobind init, it is essential to understand whether nanobind tolerates a single registered-operation type being attached to a module other than the one its bindings were originally minted in, and whether TTNN's `auto_register_ttnn_cpp_operations` recursion correctly traverses such grafted modules.
+**Questions:**
+- Does nanobind permit `mod.attr("blaze") = imported_module` to safely expose a sibling `NB_MODULE` as a child of an existing nanobind module without breaking `nb::class_<...>` ownership?
+- If a registered operation is defined in extension A and its `bind_registered_operation` call attaches it to a submodule of A, will TTNN's Python-side `auto_register_ttnn_cpp_operations(ttnn._ttnn)` walk find it (answer is no — needs explicit `auto_register_ttnn_cpp_operations(_blaze_extension)`)?
+- Are there import-order pitfalls (e.g., type caster registries, GIL, nb::class_ deduplication) when two independently-built nanobind extensions both link nanobind and share types like `ttnn::Tensor`?
+- What is the canonical Python-import-sequence to make `ttnn.blaze.matmul` resolve cleanly from a user-facing perspective, given that the extension is built and shipped *outside* the tt-metal source tree?
+
+**Findings:** TBD
+
+---
+
+## Weak Symbol and CMake Define-Gated Optional Hook Patterns for Externally-Generated Sources
+**Date:** 2026-05-16
+**Status:** Pending
+**Why Needed:** When tt-metal's nanobind init code calls a function (e.g., `blaze_nn_register_all(mod)`) whose definition is provided only by an optional generated `.cpp` (present iff `BLAZE_NN_HOME` is set and contains sources), the build must succeed in both states. Three idioms are commonly used: (i) `__attribute__((weak))` fallback stub, (ii) preprocessor-gated call site driven by `target_compile_definitions(... -DTTNN_HAS_BLAZE_NN=1)`, (iii) CMake-generated stub `.cpp` linked in when no generated sources exist. Each has trade-offs for portability, ld-vs-lld behavior, link-time errors, and re-configure semantics that need to be documented before recommending one.
+**Questions:**
+- Is `__attribute__((weak))` reliable on the toolchains tt-metal supports (clang/gcc on Linux)? Are there known issues with weak symbols inside nanobind shared libraries (`-fvisibility=default`)?
+- Is `target_compile_definitions` propagated correctly to nanobind sources when the macro is set after the `target_sources(...)` call (CMake order-of-evaluation question)?
+- For a CMake-generated stub (idiom iii), what is the canonical pattern (`configure_file`, `file(WRITE)` with `add_library/INTERFACE`) that integrates with existing `TTNN_SRC_PYBIND` list-based source aggregation?
+- How do other tt-metal subprojects handle "optional sources, single target, optional symbol" (search for precedents in `ttnn/experimental` or CCL hooks)?
+
+**Findings:** TBD
+
+---
