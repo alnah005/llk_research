@@ -381,3 +381,23 @@ This file tracks research topics that the Architect needs to investigate for mak
 **Findings:** TBD
 
 ---
+
+## Comprehensive Guide to Tenstorrent Sockets: D2D, H2D, and D2H Communication
+**Date:** 2026-05-18
+**Status:** Completed
+**Why Needed:** Tenstorrent's socket system is the primary inter-mesh and host-device communication mechanism for multi-mesh workloads. It comprises three socket types — Device-to-Device (D2D/MeshSocket) for tensor transfer between meshes via TT-Fabric, Host-to-Device (H2D) for streaming data from host CPU to device cores, and Device-to-Host (D2H) for streaming data from device cores back to the host. Understanding this system end-to-end — from the C++ API surface and Python bindings, through the configuration model (SocketConnection, SocketMemoryConfig, SocketConfig), the flow control and buffering mechanisms, the cross-process descriptor export/connect pattern, to production usage patterns in DeepSeek V3's multi-host pipeline — is essential for developers building distributed inference pipelines on Tenstorrent hardware. The source code lives at https://github.com/tenstorrent/tt-metal.
+**Questions:**
+- What are the three socket types (D2D MeshSocket, H2DSocket, D2HSocket) and how do they differ in purpose, data flow direction, underlying transport mechanism, and API surface?
+- How does D2D socket configuration work — what are MeshCoreCoord, SocketConnection (1:1 sender-receiver pairing), SocketMemoryConfig (L1 vs DRAM, fifo_size, sub-device binding), and SocketConfig (connections + memory + ranks/mesh_ids), and how do they compose to define a complete socket?
+- How do send_async and recv_async operations work — what is the non-blocking dispatch model, how does the receiver pre-allocate output tensors, what happens under the hood with TT-Fabric packet routing, and what are the synchronization/completion semantics?
+- How does the H2DSocket work — what are the two transfer modes (HOST_PUSH via PCIe TLB writes vs DEVICE_PULL via PCIe NOC reads), how does the FIFO-based flow control work (bytes_sent/bytes_acked), what are the vIOMMU requirements, and how does set_page_size/write/barrier work?
+- How does the D2HSocket work — how does the device kernel write to pinned host memory via PCIe NOC writes, how does the host read via the FIFO interface (set_page_size/has_data/read/barrier), what is the ExternalConfigBuffer pattern for caller-owned L1, and how does discard_pending_pages work?
+- How does cross-process socket sharing work — how do export_descriptor and connect enable a socket created in one process to be used from another process via flatbuffer descriptors in /dev/shm, and what is the owner vs connector lifecycle?
+- How does flow control work in each socket type — what are the circular FIFO buffer semantics, how do bytes_sent/bytes_acked counters prevent overwrite, how does the sender block when the FIFO is full, and how does the receiver signal consumption?
+- How do intra-process sockets work — what is create_socket_pair, when should it be used instead of MeshSocket, and how does it bypass the distributed context?
+- How are sockets used in production multi-host pipelines — how does DeepSeek V3's PipelineBlock use H2D for token injection, D2D SocketInterface for inter-stage forwarding, D2H for result extraction, and how do the five stage configurations (first, middle, last-with-loopback, last-without-loopback, combined-H2D+D2H) compose?
+- What are the memory and performance considerations — L1 vs DRAM buffer trade-offs, optimal FIFO sizing, PCIe alignment requirements, socket reuse vs recreation overhead, and how do buffer sizes affect throughput?
+- How do sockets interact with TT-Fabric — what fabric configuration is required (FABRIC_2D), how do MGD connections define inter-mesh links, how does packet routing work through ethernet links, and what happens when fabric is misconfigured?
+- What is the SPMD programming model for sockets — how do both processes run the same code but branch on rank, how do sender_rank/receiver_rank determine socket endpoint type, and what are the common patterns for rank-aware socket usage?
+
+---
