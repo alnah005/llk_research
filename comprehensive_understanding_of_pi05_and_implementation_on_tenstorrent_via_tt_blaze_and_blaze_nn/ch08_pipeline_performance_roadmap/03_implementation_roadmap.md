@@ -198,6 +198,12 @@ The SDPA sees a single concatenated Q of shape `[B, T_p+T_s, 8, 256]` and a sing
 
 **2.3: Stacked Blocks (18 layers)**
 
+> **Layer count note.** A "dual-expert block" is one **joint block** — trunk
+> layer-`k` and action-expert layer-`k` co-resident, sharing one joint
+> attention op. The model has **18 joint blocks**, NOT 36 sequential layers
+> (trunk and expert do not run one after the other). Below, "18 layers" always
+> means "18 joint blocks".
+
 Once a single dual-expert block works, stack 18 of them with shared KV cache management. The JAX reference uses `nn.scan` to share weights across layers -- on TT hardware this means either:
 
 (a) Sequentially executing 18 block instances that share the same weight buffers (streaming weights from DRAM per layer), or
@@ -207,12 +213,21 @@ Option (a) is the standard approach and matches the bandwidth analysis in sectio
 
 **2.4: KV Cache Fill + Reuse Test**
 
-Validate the two-pass pattern:
-1. Fill: Run 18 layers with PaliGemma input only, capture KV cache.
-2. Reuse: Run 18 layers with Action Expert input only, reading from cached KV.
-3. Compare combined output against JAX reference that does both passes.
+Validate the two-call pattern (prefill, then Euler step). Both calls traverse
+the same 18 joint blocks; what changes is *which expert generates Q/K/V at each
+block*:
 
-This tests that KV cache storage and retrieval is correct across the two execution modes.
+1. Fill: Call `llm([prefix, None])` — at each of the 18 joint blocks, only the
+   trunk side runs Q/K/V; the expert side is `None`. Capture the per-block
+   K/V from the trunk side.
+2. Reuse: Call `llm([None, suffix], kv_cache=...)` — at each of the same 18
+   joint blocks, only the action-expert side runs Q/K/V; the trunk side is
+   `None` and its cached K/V are prepended inside the joint attention op.
+3. Compare combined output against the JAX reference.
+
+This is **not** "run 18 trunk layers, then run 18 expert layers": there are
+still only **18 joint blocks** in either call. The two calls differ only in
+which expert is active at each block.
 
 ### Exit Criteria
 

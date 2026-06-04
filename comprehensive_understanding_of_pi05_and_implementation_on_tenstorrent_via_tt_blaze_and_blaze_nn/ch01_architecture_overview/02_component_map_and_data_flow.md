@@ -8,6 +8,16 @@ pi0.5 is composed of four major functional components: a SigLIP vision encoder, 
 
 ## 2.1 Four Major Components
 
+> **Layer count note.** SigLIP has 27 layers; the PaliGemma trunk and the action
+> expert have **18 layers EACH**, but they form **18 joint blocks** — at every
+> layer index `k` the trunk and the expert share one joint attention op
+> (concat-QKV / single softmax / split-O with per-expert weights). They do not
+> run as 36 sequential layers, and the action expert does not run *after* the
+> trunk. Prefill sequential depth = `27 (SigLIP) + 18 (joint blocks) = 45`
+> layer-times. Each Euler step revisits all 18 joint blocks once on the
+> action-expert side, reusing the trunk's cached K/V.
+
+
 ```
 +---------------------------------------------------------------------+
 |                          pi0.5 Model                                |
